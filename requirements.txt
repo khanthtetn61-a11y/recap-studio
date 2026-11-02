@@ -1,0 +1,6 @@
+flask>=3.0
+gunicorn>=22.0
+edge-tts>=6.1.9
+yt-dlp
+deep-translator>=1.11
+faster-whisper>=1.0
