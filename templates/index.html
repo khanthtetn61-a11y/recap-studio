@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="my">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recap Studio</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --line:#2a2f3a; --txt:#eceef2; --mut:#9aa3b2; --acc:#ff3b5c; --ok:#2ecc71; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font-family: "Noto Sans Myanmar","Myanmar Text",system-ui,sans-serif; line-height:1.6; }
+  main { max-width:520px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.3rem; margin:8px 0 14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:12px; }
+  label { display:block; font-size:.85rem; color:var(--mut); margin:10px 0 4px; }
+  input[type=text], input[type=url], input[type=password], textarea, select {
+    width:100%; padding:11px; border-radius:10px; border:1px solid var(--line);
+    background:#0f1115; color:var(--txt); font-size:1rem; font-family:inherit; }
+  textarea { min-height:90px; }
+  input[type=file] { width:100%; color:var(--mut); }
+  button { width:100%; padding:14px; border:0; border-radius:12px; background:var(--acc); color:#fff;
+           font-size:1.05rem; font-weight:600; margin-top:14px; font-family:inherit; }
+  button:disabled { opacity:.5; }
+  .bar { height:12px; background:#0f1115; border-radius:8px; overflow:hidden; border:1px solid var(--line); }
+  .bar > div { height:100%; width:0; background:var(--acc); transition:width .4s; }
+  #msg { margin:8px 0 0; font-size:.95rem; }
+  #log { font-size:.78rem; color:var(--mut); max-height:140px; overflow:auto; margin-top:8px; white-space:pre-wrap; }
+  .err { color:#ff7b7b; } .ok { color:var(--ok); }
+  video { width:100%; max-height:70vh; border-radius:12px; background:#000; margin-top:10px; }
+  a.btn { display:block; text-align:center; text-decoration:none; padding:14px; border-radius:12px;
+          background:var(--ok); color:#06240f; font-weight:700; margin-top:10px; }
+  .or { text-align:center; color:var(--mut); font-size:.8rem; margin:8px 0 0; }
+  small { color:var(--mut); }
+</style>
+</head>
+<body>
+<main>
+  <h1>🎬 Recap Studio — မြန်မာအသံ + TikTok 9:16</h1>
+
+  <form id="f" class="card">
+    <label>Video link</label>
+    <input type="url" name="link" placeholder="https://...">
+    <div class="or">— သို့မဟုတ် —</div>
+    <label>Video file (ဖုန်းထဲကရွေးပါ) <small>link ဒေါင်းမရရင် ဒါကိုသုံးပါ</small></label>
+    <input type="file" name="file" accept="video/*">
+
+    <label>မြန်မာ script (မထည့်လည်းရပါတယ် — မထည့်ရင် video ထဲက စကားကို ဘာသာပြန်ပါမယ်)</label>
+    <textarea name="script" placeholder="ကိုယ်ရေးထားတဲ့ recap စာကို ဒီမှာထည့်ပါ"></textarea>
+
+    <label>အသံ</label>
+    <select name="voice">
+      <option value="female">အမျိုးသမီးအသံ (Nilar)</option>
+      <option value="male">အမျိုးသားအသံ (Thiha)</option>
+    </select>
+
+    <label>အသံအမြန်နှုန်း: <span id="sv">0</span>%</label>
+    <input type="range" name="speed" min="-20" max="30" value="0" style="width:100%"
+           oninput="sv.textContent=this.value">
+
+    {% if need_pw %}
+    <label>Password</label>
+    <input type="password" name="pw" id="pw">
+    {% endif %}
+
+    <button id="go" type="submit">စတင်မယ်</button>
+  </form>
+
+  <div class="card" id="prog" hidden>
+    <div class="bar"><div id="fill"></div></div>
+    <p id="msg"></p>
+    <div id="log"></div>
+  </div>
+
+  <div class="card" id="res" hidden>
+    <video id="player" controls playsinline></video>
+    <a class="btn" id="dl" href="#">⬇ Download (MP4, 1080×1920)</a>
+  </div>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+const f = $('f'), go = $('go');
+try { if ($('pw')) $('pw').value = localStorage.getItem('pw') || ''; } catch(e){}
+
+f.addEventListener('submit', async e => {
+  e.preventDefault();
+  go.disabled = true; $('res').hidden = true; $('prog').hidden = false;
+  $('fill').style.width = '0%'; $('msg').className = ''; $('msg').textContent = 'Upload လုပ်နေပါတယ်...'; $('log').textContent = '';
+  try { if ($('pw')) localStorage.setItem('pw', $('pw').value); } catch(e){}
+  const fd = new FormData(f);
+  if (!fd.get('file') || !fd.get('file').name) fd.delete('file');
+  let r;
+  try { r = await fetch('/start', { method:'POST', body: fd }); }
+  catch (err) { return fail('Server နဲ့ ချိတ်ဆက်မရပါ'); }
+  const j = await r.json();
+  if (!r.ok) return fail(j.error || 'Error');
+  poll(j.id);
+});
+
+function fail(t) { $('msg').className = 'err'; $('msg').textContent = '❌ ' + t; go.disabled = false; }
+
+async function poll(id) {
+  let misses = 0;
+  const t = setInterval(async () => {
+    let j;
+    try { const r = await fetch('/status/' + id); j = await r.json(); misses = 0; if (r.status === 404) throw 0; }
+    catch (e) { if (++misses > 20) { clearInterval(t); fail('Server နဲ့ ချိတ်ဆက်မရတော့ပါ။ ပြန်စမ်းပါ'); } return; }
+    $('fill').style.width = j.percent + '%';
+    $('msg').textContent = j.message + ' (' + j.percent + '%)';
+    $('log').textContent = j.log.join('\n'); $('log').scrollTop = 1e6;
+    if (j.status === 'done') {
+      clearInterval(t); go.disabled = false;
+      $('msg').className = 'ok';
+      $('player').src = '/video/' + id; $('dl').href = '/download/' + id; $('res').hidden = false;
+    } else if (j.status === 'error') { clearInterval(t); fail(j.error); }
+  }, 2000);
+}
+</script>
+</body>
+</html>
