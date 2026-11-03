@@ -1,4 +1,4 @@
-"""Movie recap pipeline: video -> Burmese voice -> 9:16 (1080x1920) with audio/video in sync."""
+"""Movie recap pipeline: video -> Burmese voice -> 9:16 with audio/video in sync."""
 import asyncio
 import glob
 import math
@@ -8,7 +8,15 @@ import sys
 import time
 from pathlib import Path
 
-W, H, FPS = 1080, 1920, 30
+import os
+# Render free plan has a very weak CPU, so default to 720x1280 (still 9:16, fine for TikTok).
+# Set OUT_WIDTH=1080 on a stronger server for full HD.
+W = int(os.environ.get("OUT_WIDTH", "720"))
+W -= W % 2
+H = W * 16 // 9
+H -= H % 2
+FPS = int(os.environ.get("OUT_FPS", "25"))
+MIN_CHUNK = int(os.environ.get("MIN_CHUNK_CHARS", "160"))   # bigger chunks = fewer ffmpeg runs
 VOICES = {
     "female": "my-MM-NilarNeural",
     "male": "my-MM-ThihaNeural",
@@ -150,11 +158,11 @@ def split_script(script, total):
     chunks, buf = [], ""
     for p in parts:
         buf = (buf + " " + p).strip()
-        if len(buf) >= 40:
+        if len(buf) >= MIN_CHUNK:
             chunks.append(buf)
             buf = ""
     if buf:
-        if chunks and len(buf) < 15:
+        if chunks and len(buf) < MIN_CHUNK // 3:
             chunks[-1] += " " + buf
         else:
             chunks.append(buf)
@@ -201,7 +209,7 @@ def render_segment(src, idx, start, d_v, audio_in, d_a, work):
     aud = str(Path(work) / f"a{idx:04d}.wav")
     run(["ffmpeg", "-y", "-ss", f"{start:.3f}", "-t", f"{d_v:.3f}", "-i", str(src),
          "-filter_complex", VF.format(w=W, h=H, f=factor, fps=FPS),
-         "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+         "-an", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
          "-r", str(FPS), "-frames:v", str(n), vid])
     af = (f"atempo={tempo:.4f}," if tempo > 1.0001 else "") + f"apad=whole_dur={T:.4f}"
     run(["ffmpeg", "-y", "-i", str(audio_in), "-af", af, "-ar", "44100", "-ac", "2",
